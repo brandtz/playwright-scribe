@@ -1,50 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Plus, Settings, TrendingUp, AlertCircle, CheckCircle, Clock, BarChart3 } from "lucide-react";
+import { Play, Plus, Settings, TrendingUp, AlertCircle, CheckCircle, Clock, BarChart3, Video, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom"; 
+import { useTestCases, TestCase as TestCaseType } from "@/hooks/useTestCases";
 
-interface TestCase {
-  id: string;
-  name: string;
-  status: "passing" | "failing" | "pending" | "running";
-  lastRun: string;
-  duration: string;
-  parameters: Record<string, string>;
-  tags: string[];
+interface TestCase extends TestCaseType {
+  parameters?: Record<string, string>;
 }
 
-const mockTests: TestCase[] = [
-  {
-    id: "1",
-    name: "User Login Flow",
-    status: "passing",
-    lastRun: "2 hours ago",
-    duration: "45s",
-    parameters: { accountNumber: "12345", environment: "staging" },
-    tags: ["login", "ui"]
-  },
-  {
-    id: "2", 
-    name: "Payment Processing",
-    status: "failing",
-    lastRun: "1 hour ago",
-    duration: "1m 23s",
-    parameters: { paymentAmount: "100.00", cardType: "visa" },
-    tags: ["payment", "ordering"]
-  },
-  {
-    id: "3",
-    name: "Product Search",
-    status: "pending",
-    lastRun: "3 hours ago", 
-    duration: "32s",
-    parameters: { searchTerm: "laptop", category: "electronics" },
-    tags: ["ui", "search"]
-  }
-];
-
-const StatusBadge = ({ status }: { status: TestCase["status"] }) => {
+const StatusBadge = ({ status }: { status: TestCaseType["status"] }) => {
   const variants = {
     passing: "bg-success text-success-foreground",
     failing: "bg-destructive text-destructive-foreground", 
@@ -71,13 +37,46 @@ const StatusBadge = ({ status }: { status: TestCase["status"] }) => {
 
 export default function TestDashboard() {
   const [selectedTest, setSelectedTest] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const { testCases, loading, runTest } = useTestCases();
 
   const stats = {
-    total: mockTests.length,
-    passing: mockTests.filter(t => t.status === "passing").length,
-    failing: mockTests.filter(t => t.status === "failing").length,
-    pending: mockTests.filter(t => t.status === "pending").length
+    total: testCases.length,
+    passing: testCases.filter(t => t.status === "passing").length,
+    failing: testCases.filter(t => t.status === "failing").length,
+    pending: testCases.filter(t => t.status === "pending").length
   };
+
+  const handleNewTest = () => {
+    navigate('/editor');
+  };
+
+  const handleRecordTest = () => {
+    navigate('/editor?mode=record');
+  };
+
+  const handleEditTest = (testId: string) => {
+    navigate(`/editor?id=${testId}`);
+  };
+
+  const handleConfiguration = () => {
+    navigate('/admin');
+  };
+
+  const handleRunTest = async (testId: string) => {
+    await runTest(testId);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background p-6 flex items-center justify-center">
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-6 h-6 animate-spin" />
+          <span>Loading test cases...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -89,11 +88,15 @@ export default function TestDashboard() {
             <p className="text-muted-foreground mt-1">Manage and monitor your automated tests</p>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={handleConfiguration}>
               <Settings className="w-4 h-4 mr-2" />
               Configuration
             </Button>
-            <Button size="sm">
+            <Button variant="outline" size="sm" onClick={handleRecordTest}>
+              <Video className="w-4 h-4 mr-2" />
+              Record Test
+            </Button>
+            <Button size="sm" onClick={handleNewTest}>
               <Plus className="w-4 h-4 mr-2" />
               New Test
             </Button>
@@ -161,37 +164,78 @@ export default function TestDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {mockTests.map((test) => (
-                <div 
-                  key={test.id}
-                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
-                  onClick={() => setSelectedTest(selectedTest === test.id ? null : test.id)}
-                >
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-foreground">{test.name}</h3>
-                    <p className="text-sm text-muted-foreground">Last run: {test.lastRun}</p>
-                    <div className="flex gap-1 mt-2 flex-wrap">
-                      {test.tags.map(tag => (
-                        <Badge key={tag} variant="outline" className="text-xs">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <StatusBadge status={test.status} />
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm">
-                        <Play className="w-4 h-4 mr-1" />
-                        Run
-                      </Button>
-                      <Button variant="ghost" size="sm">
-                        Edit
-                      </Button>
-                    </div>
-                  </div>
+              {testCases.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No test cases found. Create your first test to get started!</p>
+                  <Button className="mt-4" onClick={handleNewTest}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create First Test
+                  </Button>
                 </div>
-              ))}
+              ) : (
+                testCases.map((test) => (
+                  <div 
+                    key={test.id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                    onClick={() => setSelectedTest(selectedTest === test.id ? null : test.id)}
+                  >
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-foreground">{test.name}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Last run: {test.last_run || 'Never'}
+                      </p>
+                      {test.description && (
+                        <p className="text-xs text-muted-foreground mt-1">{test.description}</p>
+                      )}
+                      <div className="flex gap-1 mt-2 flex-wrap">
+                        {test.tags.map(tag => (
+                          <Badge key={tag} variant="outline" className="text-xs">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <StatusBadge status={test.status} />
+                        {test.duration && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {Math.round(test.duration / 1000)}s
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRunTest(test.id);
+                          }}
+                          disabled={test.status === 'running'}
+                        >
+                          {test.status === 'running' ? (
+                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                          ) : (
+                            <Play className="w-4 h-4 mr-1" />
+                          )}
+                          Run
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditTest(test.id);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
