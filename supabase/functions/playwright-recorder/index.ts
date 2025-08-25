@@ -10,6 +10,8 @@ interface RecordingRequest {
   testName?: string;
   startUrl?: string;
   sessionId?: string;
+  isHeaded?: boolean;
+  browserType?: 'chromium' | 'firefox' | 'webkit';
 }
 
 interface RecordingSession {
@@ -80,6 +82,9 @@ async function startRecording(request: RecordingRequest): Promise<Response> {
   }
 
   const sessionId = crypto.randomUUID();
+  const browserType = request.browserType || 'chromium';
+  const isHeaded = request.isHeaded ?? true;
+  
   const session: RecordingSession = {
     id: sessionId,
     testName: request.testName,
@@ -92,16 +97,20 @@ async function startRecording(request: RecordingRequest): Promise<Response> {
   activeSessions.set(sessionId, session);
 
   console.log(`Started recording session ${sessionId} for test "${request.testName}"`);
+  console.log(`Browser configuration: ${browserType} (${isHeaded ? 'headed' : 'headless'})`);
 
   // In a real implementation, this would:
-  // 1. Launch a headed Playwright browser
-  // 2. Navigate to the start URL
-  // 3. Set up event listeners to capture user interactions
-  // 4. Store actions as they happen
+  // 1. Launch the specified browser (chromium/firefox/webkit)
+  // 2. Configure headed/headless mode based on user preference
+  // 3. Navigate to the start URL
+  // 4. Set up event listeners to capture user interactions
+  // 5. Store actions as they happen
   
-  // For now, we'll simulate this process
+  // Simulate realistic startup time based on browser type and mode
+  const startupTime = isHeaded ? 3000 : 1500; // Headed browsers take longer to start
+  
   setTimeout(() => {
-    // Simulate recording some actions
+    // Simulate recording initial navigation action
     const session = activeSessions.get(sessionId);
     if (session && session.status === 'recording') {
       session.actions.push({
@@ -117,8 +126,11 @@ async function startRecording(request: RecordingRequest): Promise<Response> {
     JSON.stringify({ 
       success: true, 
       sessionId,
-      message: 'Recording started successfully',
-      browserUrl: request.startUrl // In real implementation, this would be the browser URL
+      browserType,
+      isHeaded,
+      message: `Recording started with ${browserType} browser in ${isHeaded ? 'headed' : 'headless'} mode`,
+      browserUrl: request.startUrl,
+      estimatedStartupTime: startupTime
     }),
     { 
       status: 200, 

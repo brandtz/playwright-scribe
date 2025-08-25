@@ -4,8 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Video, Square, Play, Loader2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Video, Square, Play, Loader2, Code, Monitor } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface RecordingModalProps {
   isOpen: boolean;
@@ -23,6 +27,11 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
   const [startUrl, setStartUrl] = useState('https://');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState<'idle' | 'starting' | 'recording' | 'stopping'>('idle');
+  const [isHeaded, setIsHeaded] = useState(true);
+  const [browserType, setBrowserType] = useState('chromium');
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [generatedCode, setGeneratedCode] = useState('');
+  const [activeTab, setActiveTab] = useState('setup');
   const { toast } = useToast();
 
   const handleStartRecording = async () => {
@@ -38,21 +47,25 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
     setRecordingStatus('starting');
     
     try {
-      // Simulate API call to start Playwright recording session
-      // In a real implementation, this would call an edge function that:
-      // 1. Starts a headed Playwright browser
-      // 2. Opens the specified URL
-      // 3. Begins recording user interactions
-      // 4. Returns a session ID for tracking
-      
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate startup time
-      
+      const { data, error } = await supabase.functions.invoke('playwright-recorder', {
+        body: {
+          action: 'start',
+          testName,
+          startUrl,
+          isHeaded,
+          browserType
+        }
+      });
+
+      if (error) throw error;
+
+      setSessionId(data.sessionId);
       setRecordingStatus('recording');
       setIsRecording(true);
       
       toast({
         title: "Recording Started",
-        description: "Browser opened in recording mode. Perform your test actions.",
+        description: `${isHeaded ? 'Headed' : 'Headless'} ${browserType} browser opened. Perform your test actions.`,
       });
       
     } catch (error) {
@@ -67,36 +80,30 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
   };
 
   const handleStopRecording = async () => {
+    if (!sessionId) return;
+    
     setRecordingStatus('stopping');
     
     try {
-      // Simulate API call to stop recording and process the recorded actions
-      // In a real implementation, this would:
-      // 1. Stop the recording session
-      // 2. Parse the recorded actions into test steps
-      // 3. Return the generated test code and steps
-      
-      await new Promise(resolve => setTimeout(resolve, 3000)); // Simulate processing time
-      
-      // Save the test with generated data
-      await onSave({
-        name: testName,
-        description: testDescription,
-        url: startUrl
+      const { data, error } = await supabase.functions.invoke('playwright-recorder', {
+        body: {
+          action: 'stop',
+          sessionId
+        }
       });
+
+      if (error) throw error;
+
+      setGeneratedCode(data.playwrightCode);
+      setActiveTab('code');
       
       toast({
         title: "Recording Complete",
-        description: "Test recorded and saved successfully!",
+        description: `Generated ${data.actionsRecorded} test steps in ${Math.round(data.duration / 1000)}s`,
       });
       
-      // Reset state
-      setTestName('');
-      setTestDescription('');
-      setStartUrl('https://');
-      setIsRecording(false);
       setRecordingStatus('idle');
-      onClose();
+      setIsRecording(false);
       
     } catch (error) {
       console.error('Failed to stop recording:', error);
@@ -109,8 +116,37 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
     }
   };
 
+  const handleSaveAndClose = async () => {
+    try {
+      await onSave({
+        name: testName,
+        description: testDescription,
+        url: startUrl
+      });
+      
+      // Reset state
+      setTestName('');
+      setTestDescription('');
+      setStartUrl('https://');
+      setIsRecording(false);
+      setRecordingStatus('idle');
+      setGeneratedCode('');
+      setActiveTab('setup');
+      setSessionId(null);
+      onClose();
+      
+    } catch (error) {
+      console.error('Failed to save test:', error);
+      toast({
+        title: "Save Failed",
+        description: "Failed to save test. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const handleCancel = () => {
-    if (isRecording) {
+    if (isRecording && sessionId) {
       // In a real implementation, this would terminate the Playwright session
       setIsRecording(false);
       setRecordingStatus('idle');
@@ -118,6 +154,9 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
     setTestName('');
     setTestDescription('');
     setStartUrl('https://');
+    setGeneratedCode('');
+    setActiveTab('setup');
+    setSessionId(null);
     onClose();
   };
 
@@ -136,7 +175,7 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
 
   return (
     <Dialog open={isOpen} onOpenChange={handleCancel}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Video className="w-5 h-5" />
@@ -144,92 +183,163 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
           </DialogTitle>
         </DialogHeader>
         
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="test-name">Test Name</Label>
-            <Input
-              id="test-name"
-              value={testName}
-              onChange={(e) => setTestName(e.target.value)}
-              placeholder="Enter test name"
-              disabled={isRecording}
-            />
-          </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="setup" className="flex items-center gap-2">
+              <Monitor className="w-4 h-4" />
+              Setup
+            </TabsTrigger>
+            <TabsTrigger value="code" disabled={!generatedCode} className="flex items-center gap-2">
+              <Code className="w-4 h-4" />
+              Generated Code
+            </TabsTrigger>
+          </TabsList>
           
-          <div className="space-y-2">
-            <Label htmlFor="test-description">Description (Optional)</Label>
-            <Textarea
-              id="test-description"
-              value={testDescription}
-              onChange={(e) => setTestDescription(e.target.value)}
-              placeholder="Brief description of what this test does"
-              disabled={isRecording}
-              rows={2}
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="start-url">Starting URL</Label>
-            <Input
-              id="start-url"
-              value={startUrl}
-              onChange={(e) => setStartUrl(e.target.value)}
-              placeholder="https://example.com"
-              disabled={isRecording}
-            />
-          </div>
-          
-          {recordingStatus !== 'idle' && (
-            <div className="bg-muted p-3 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                {recordingStatus === 'recording' ? (
-                  <div className="w-2 h-2 bg-destructive rounded-full animate-pulse" />
-                ) : (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                )}
-                <span className="text-sm font-medium">
-                  {recordingStatus === 'recording' ? 'Recording' : 'Processing'}
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {getStatusMessage()}
-              </p>
+          <TabsContent value="setup" className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="test-name">Test Name</Label>
+              <Input
+                id="test-name"
+                value={testName}
+                onChange={(e) => setTestName(e.target.value)}
+                placeholder="Enter test name"
+                disabled={isRecording}
+              />
             </div>
-          )}
-          
-          <div className="flex justify-end gap-2 pt-4">
-            <Button variant="outline" onClick={handleCancel}>
-              Cancel
-            </Button>
             
-            {!isRecording ? (
-              <Button 
-                onClick={handleStartRecording}
-                disabled={recordingStatus !== 'idle'}
-              >
-                {recordingStatus === 'starting' ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                Start Recording
-              </Button>
-            ) : (
-              <Button 
-                onClick={handleStopRecording}
-                disabled={recordingStatus === 'stopping'}
-                variant="destructive"
-              >
-                {recordingStatus === 'stopping' ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Square className="w-4 h-4 mr-2" />
-                )}
-                Stop & Save
-              </Button>
+            <div className="space-y-2">
+              <Label htmlFor="test-description">Description (Optional)</Label>
+              <Textarea
+                id="test-description"
+                value={testDescription}
+                onChange={(e) => setTestDescription(e.target.value)}
+                placeholder="Brief description of what this test does"
+                disabled={isRecording}
+                rows={2}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="start-url">Starting URL</Label>
+              <Input
+                id="start-url"
+                value={startUrl}
+                onChange={(e) => setStartUrl(e.target.value)}
+                placeholder="https://example.com"
+                disabled={isRecording}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="browser-type">Browser</Label>
+                <Select value={browserType} onValueChange={setBrowserType} disabled={isRecording}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select browser" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="chromium">Chromium</SelectItem>
+                    <SelectItem value="firefox">Firefox</SelectItem>
+                    <SelectItem value="webkit">WebKit (Safari)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="headed-toggle">Display Mode</Label>
+                <div className="flex items-center space-x-2 pt-2">
+                  <Switch 
+                    id="headed-toggle"
+                    checked={isHeaded}
+                    onCheckedChange={setIsHeaded}
+                    disabled={isRecording}
+                  />
+                  <Label htmlFor="headed-toggle" className="text-sm">
+                    {isHeaded ? 'Headed (Visible)' : 'Headless (Background)'}
+                  </Label>
+                </div>
+              </div>
+            </div>
+            
+            {recordingStatus !== 'idle' && (
+              <div className="bg-muted p-3 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  {recordingStatus === 'recording' ? (
+                    <div className="w-2 h-2 bg-destructive rounded-full animate-pulse" />
+                  ) : (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {recordingStatus === 'recording' ? 'Recording' : 'Processing'}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {getStatusMessage()}
+                </p>
+              </div>
             )}
-          </div>
-        </div>
+            
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={handleCancel}>
+                Cancel
+              </Button>
+              
+              {!isRecording ? (
+                <Button 
+                  onClick={handleStartRecording}
+                  disabled={recordingStatus !== 'idle'}
+                >
+                  {recordingStatus === 'starting' ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  Start Recording
+                </Button>
+              ) : (
+                <Button 
+                  onClick={handleStopRecording}
+                  disabled={recordingStatus === 'stopping'}
+                  variant="destructive"
+                >
+                  {recordingStatus === 'stopping' ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Square className="w-4 h-4 mr-2" />
+                  )}
+                  Stop Recording
+                </Button>
+              )}
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="code" className="space-y-4">
+            {generatedCode && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="generated-code">Generated Playwright Code</Label>
+                  <Textarea
+                    id="generated-code"
+                    value={generatedCode}
+                    onChange={(e) => setGeneratedCode(e.target.value)}
+                    placeholder="Generated code will appear here..."
+                    className="min-h-96 font-mono text-sm"
+                    rows={20}
+                  />
+                </div>
+                
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button variant="outline" onClick={handleCancel}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSaveAndClose}>
+                    Save Test
+                  </Button>
+                </div>
+              </>
+            )}
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
