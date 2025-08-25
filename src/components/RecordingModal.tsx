@@ -78,7 +78,7 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
       
       await new Promise(resolve => setTimeout(resolve, 3000)); // Simulate processing time
       
-      // Save the test with generated steps
+      // Save the test with generated data
       await onSave({
         name: testName,
         description: testDescription,

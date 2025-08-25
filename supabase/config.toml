@@ -1,1 +1,4 @@
 project_id = "uobkyqmbhxqyzjjucgpi"
+
+[functions.playwright-recorder]
+verify_jwt = false

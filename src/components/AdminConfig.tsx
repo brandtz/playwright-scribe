@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,8 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, TestTube, Database, Globe, Shield, AlertCircle, CheckCircle } from "lucide-react";
+import { Save, TestTube, Database, Globe, Shield, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useConfigurations } from "@/hooks/useConfigurations";
 
 interface DatabaseConfig {
   host: string;
@@ -30,7 +31,9 @@ interface PlaywrightConfig {
 
 export default function AdminConfig() {
   const { toast } = useToast();
+  const { configurations, loading, updateConfiguration, getConfiguration } = useConfigurations();
   const [connectionStatus, setConnectionStatus] = useState<"connected" | "disconnected" | "testing">("disconnected");
+  const [isSaving, setIsSaving] = useState(false);
   
   const [dbConfig, setDbConfig] = useState<DatabaseConfig>({
     host: "localhost",
@@ -50,6 +53,39 @@ export default function AdminConfig() {
       height: "720"
     }
   });
+
+  // Load configurations from database
+  useEffect(() => {
+    if (configurations.length > 0) {
+      const dbConfigData = getConfiguration('database_config');
+      const playwrightConfigData = getConfiguration('playwright_config');
+
+      if (dbConfigData) {
+        const dbValues = dbConfigData.value;
+        setDbConfig({
+          host: dbValues.host || "localhost",
+          port: dbValues.port?.toString() || "3306",
+          database: dbValues.database || "playwright_tests",
+          username: dbValues.username || "admin",
+          password: dbValues.password || ""
+        });
+      }
+
+      if (playwrightConfigData) {
+        const playwrightValues = playwrightConfigData.value;
+        setPlaywrightConfig({
+          headless: playwrightValues.headless ?? true,
+          timeout: playwrightValues.timeout?.toString() || "30000",
+          retries: playwrightValues.retries?.toString() || "2",
+          browserType: playwrightValues.browser || "chromium",
+          viewport: {
+            width: playwrightValues.viewport?.width?.toString() || "1280",
+            height: playwrightValues.viewport?.height?.toString() || "720"
+          }
+        });
+      }
+    }
+  }, [configurations, getConfiguration]);
 
   const testConnection = async () => {
     setConnectionStatus("testing");
@@ -73,11 +109,43 @@ export default function AdminConfig() {
     }, 2000);
   };
 
-  const saveConfig = () => {
-    toast({
-      title: "Configuration Saved",
-      description: "All settings have been saved successfully.",
-    });
+  const saveConfig = async () => {
+    setIsSaving(true);
+    try {
+      // Save database configuration
+      await updateConfiguration('database_config', {
+        host: dbConfig.host,
+        port: parseInt(dbConfig.port),
+        database: dbConfig.database,
+        username: dbConfig.username,
+        password: dbConfig.password
+      }, 'Database connection settings');
+
+      // Save Playwright configuration
+      await updateConfiguration('playwright_config', {
+        timeout: parseInt(playwrightConfig.timeout),
+        retries: parseInt(playwrightConfig.retries),
+        browser: playwrightConfig.browserType,
+        headless: playwrightConfig.headless,
+        viewport: {
+          width: parseInt(playwrightConfig.viewport.width),
+          height: parseInt(playwrightConfig.viewport.height)
+        }
+      }, 'Playwright test configuration');
+
+      toast({
+        title: "Configuration Saved",
+        description: "All settings have been saved successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Save Failed",
+        description: "Failed to save configuration settings.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const updateDbConfig = (field: keyof DatabaseConfig, value: string) => {
@@ -108,8 +176,12 @@ export default function AdminConfig() {
             <h1 className="text-3xl font-bold text-foreground">System Configuration</h1>
             <p className="text-muted-foreground mt-1">Manage database connections and Playwright settings</p>
           </div>
-          <Button onClick={saveConfig}>
-            <Save className="w-4 h-4 mr-2" />
+          <Button onClick={saveConfig} disabled={isSaving || loading}>
+            {isSaving ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4 mr-2" />
+            )}
             Save All Changes
           </Button>
         </div>

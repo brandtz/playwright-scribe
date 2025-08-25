@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,7 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Play, Save, Settings, Plus, Trash2, Code, Eye } from "lucide-react";
+import { Play, Save, Settings, Plus, Trash2, Code, Eye, Loader2, ArrowLeft } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useTestCases, useTestSteps, useTestParameters } from "@/hooks/useTestCases";
+import { RecordingModal } from "./RecordingModal";
 import TagManager from "./TagManager";
 
 interface TestStep {
@@ -24,57 +28,66 @@ interface TestParameter {
 }
 
 export default function TestEditor() {
-  const [testName, setTestName] = useState("User Login Flow");
-  const [testDescription, setTestDescription] = useState("Test the complete user login process including validation");
-  const [selectedTags, setSelectedTags] = useState(["login", "ui"]);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { toast } = useToast();
   
-  const [steps, setSteps] = useState<TestStep[]>([
-    {
-      id: "1",
-      action: "navigate",
-      selector: "",
-      value: "https://app.example.com/login",
-      description: "Navigate to login page"
-    },
-    {
-      id: "2", 
-      action: "fill",
-      selector: "[data-testid='username']",
-      value: "{{accountNumber}}",
-      description: "Enter account number"
-    },
-    {
-      id: "3",
-      action: "fill", 
-      selector: "[data-testid='password']",
-      value: "{{password}}",
-      description: "Enter password"
-    },
-    {
-      id: "4",
-      action: "click",
-      selector: "[data-testid='login-button']",
-      description: "Click login button"
-    }
-  ]);
+  const testId = searchParams.get('id');
+  const isRecordingMode = searchParams.get('mode') === 'record';
+  
+  const { testCases, createTestCase, updateTestCase, runTest } = useTestCases();
+  const { steps, saveSteps } = useTestSteps(testId || '');
+  const { parameters, saveParameters } = useTestParameters(testId || '');
+  
+  const [testName, setTestName] = useState("");
+  const [testDescription, setTestDescription] = useState("");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [localSteps, setLocalSteps] = useState<TestStep[]>([]);
+  const [localParameters, setLocalParameters] = useState<TestParameter[]>([]);
+  const [isRecordingModalOpen, setIsRecordingModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const [parameters, setParameters] = useState<TestParameter[]>([
-    {
-      key: "accountNumber",
-      value: "12345",
-      description: "User account number for testing"
-    },
-    {
-      key: "password", 
-      value: "testpass123",
-      description: "Password for test account"
-    },
-    {
-      key: "environment",
-      value: "staging",
-      description: "Test environment URL"
+  // Load existing test case data
+  useEffect(() => {
+    if (testId && testCases.length > 0) {
+      const testCase = testCases.find(t => t.id === testId);
+      if (testCase) {
+        setTestName(testCase.name);
+        setTestDescription(testCase.description || "");
+        setSelectedTags(testCase.tags || []);
+      }
     }
-  ]);
+  }, [testId, testCases]);
+
+  // Load steps and parameters
+  useEffect(() => {
+    if (steps.length > 0) {
+      setLocalSteps(steps.map(step => ({
+        id: step.id,
+        action: step.action,
+        selector: step.selector || "",
+        value: step.value || "",
+        description: step.description || ""
+      })));
+    }
+  }, [steps]);
+
+  useEffect(() => {
+    if (parameters.length > 0) {
+      setLocalParameters(parameters.map(param => ({
+        key: param.key,
+        value: param.value,
+        description: param.description || ""
+      })));
+    }
+  }, [parameters]);
+
+  // Show recording modal if in recording mode
+  useEffect(() => {
+    if (isRecordingMode) {
+      setIsRecordingModalOpen(true);
+    }
+  }, [isRecordingMode]);
 
   const addStep = () => {
     const newStep: TestStep = {
@@ -84,7 +97,7 @@ export default function TestEditor() {
       value: "",
       description: "New step"
     };
-    setSteps([...steps, newStep]);
+    setLocalSteps([...localSteps, newStep]);
   };
 
   const addParameter = () => {
@@ -93,27 +106,147 @@ export default function TestEditor() {
       value: "",
       description: "New parameter"
     };
-    setParameters([...parameters, newParam]);
+    setLocalParameters([...localParameters, newParam]);
   };
 
   const removeStep = (id: string) => {
-    setSteps(steps.filter(step => step.id !== id));
+    setLocalSteps(localSteps.filter(step => step.id !== id));
   };
 
   const removeParameter = (key: string) => {
-    setParameters(parameters.filter(param => param.key !== key));
+    setLocalParameters(localParameters.filter(param => param.key !== key));
   };
 
   const updateStep = (id: string, field: keyof TestStep, value: string) => {
-    setSteps(steps.map(step => 
+    setLocalSteps(localSteps.map(step => 
       step.id === id ? { ...step, [field]: value } : step
     ));
   };
 
   const updateParameter = (index: number, field: keyof TestParameter, value: string) => {
-    setParameters(parameters.map((param, i) => 
+    setLocalParameters(localParameters.map((param, i) => 
       i === index ? { ...param, [field]: value } : param
     ));
+  };
+
+  const handleSave = async () => {
+    if (!testName.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Test name is required",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      let currentTestId = testId;
+
+      // Create or update test case
+      if (testId) {
+        await updateTestCase(testId, {
+          name: testName,
+          description: testDescription,
+          tags: selectedTags,
+          status: 'pending',
+          last_run: undefined,
+          duration: undefined,
+          created_at: '',
+          updated_at: '',
+          id: testId
+        });
+      } else {
+        const newTestCase = await createTestCase({
+          name: testName,
+          description: testDescription,
+          tags: selectedTags,
+          status: 'pending'
+        });
+        currentTestId = newTestCase.id;
+        // Update URL to include the new test ID
+        navigate(`/editor?id=${currentTestId}`, { replace: true });
+      }
+
+      if (currentTestId) {
+        // Save steps
+        const stepsToSave = localSteps.map((step, index) => ({
+          test_case_id: currentTestId!,
+          step_order: index + 1,
+          action: step.action,
+          selector: step.selector,
+          value: step.value,
+          description: step.description
+        }));
+        await saveSteps(stepsToSave);
+
+        // Save parameters
+        const parametersToSave = localParameters.map(param => ({
+          test_case_id: currentTestId!,
+          key: param.key,
+          value: param.value,
+          description: param.description
+        }));
+        await saveParameters(parametersToSave);
+      }
+
+      toast({
+        title: "Success",
+        description: "Test saved successfully"
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save test",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRunTest = async () => {
+    if (testId) {
+      await runTest(testId);
+    } else {
+      toast({
+        title: "Save Required",
+        description: "Please save the test before running it",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleRecordingComplete = async (recordingData: {
+    name: string;
+    description: string;
+    url: string;
+  }) => {
+    // Set the form data from recording
+    setTestName(recordingData.name);
+    setTestDescription(recordingData.description);
+    setSelectedTags(['recorded']);
+    
+    // Generate sample steps from recording (in real implementation, these would come from the recording)
+    const generatedSteps: TestStep[] = [
+      {
+        id: "1",
+        action: "navigate",
+        selector: "",
+        value: recordingData.url,
+        description: "Navigate to starting page"
+      },
+      {
+        id: "2",
+        action: "click",
+        selector: "[recorded-selector]",
+        value: "",
+        description: "Recorded click action"
+      }
+    ];
+    
+    setLocalSteps(generatedSteps);
+    setIsRecordingModalOpen(false);
   };
 
   return (
@@ -121,21 +254,45 @@ export default function TestEditor() {
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Test Editor</h1>
-            <p className="text-muted-foreground mt-1">Create and modify your Playwright tests</p>
+          <div className="flex items-center gap-4">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => navigate('/dashboard')}
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Dashboard
+            </Button>
+            <div>
+              <h1 className="text-3xl font-bold text-foreground">
+                {testId ? 'Edit Test' : 'Create New Test'}
+              </h1>
+              <p className="text-muted-foreground mt-1">
+                {isRecordingMode ? 'Recording mode - create tests by recording interactions' 
+                 : 'Create and modify your Playwright tests'}
+              </p>
+            </div>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" size="sm">
-              <Eye className="w-4 h-4 mr-2" />
-              Preview
-            </Button>
-            <Button variant="outline" size="sm">
+            <Button 
+              variant="outline" 
+              size="sm"
+              disabled={!testId}
+              onClick={handleRunTest}
+            >
               <Play className="w-4 h-4 mr-2" />
               Run Test
             </Button>
-            <Button size="sm">
-              <Save className="w-4 h-4 mr-2" />
+            <Button 
+              size="sm" 
+              onClick={handleSave}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4 mr-2" />
+              )}
               Save
             </Button>
           </div>
@@ -194,7 +351,7 @@ export default function TestEditor() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {steps.map((step, index) => (
+                  {localSteps.map((step, index) => (
                     <div key={step.id} className="p-4 border rounded-lg bg-card">
                       <div className="flex items-center justify-between mb-3">
                         <Badge variant="outline">Step {index + 1}</Badge>
@@ -271,7 +428,7 @@ export default function TestEditor() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {parameters.map((param, index) => (
+                  {localParameters.map((param, index) => (
                     <div key={index} className="p-4 border rounded-lg bg-card">
                       <div className="flex items-center justify-between mb-3">
                         <Badge variant="secondary">{`{${param.key}}`}</Badge>
@@ -334,7 +491,7 @@ export default function TestEditor() {
 test('${testName}', async ({ page }) => {
   // ${testDescription}
   
-${steps.map((step, index) => {
+${localSteps.map((step, index) => {
   switch (step.action) {
     case 'navigate':
       return `  // Step ${index + 1}: ${step.description}\n  await page.goto('${step.value}');`;
@@ -356,6 +513,18 @@ ${steps.map((step, index) => {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Recording Modal */}
+        <RecordingModal
+          isOpen={isRecordingModalOpen}
+          onClose={() => {
+            setIsRecordingModalOpen(false);
+            if (isRecordingMode) {
+              navigate('/editor');
+            }
+          }}
+          onSave={handleRecordingComplete}
+        />
       </div>
     </div>
   );
