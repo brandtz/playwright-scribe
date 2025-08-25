@@ -8,6 +8,8 @@ app.use(cors());
 
 let activeProcess = null;
 let sessionId = null;
+let capturedCode = '';
+let codeOutput = [];
 
 app.post('/start', (req, res) => {
   try {
@@ -26,11 +28,32 @@ app.post('/start', (req, res) => {
     console.log(`[${sessionId}] Starting recording for "${testName}"`);
     console.log(`[${sessionId}] Command: ${npx} ${args.join(' ')}`);
 
+    // Reset code capture for new session
+    capturedCode = '';
+    codeOutput = [];
+
     activeProcess = spawn(npx, args, { 
-      stdio: 'inherit', 
+      stdio: ['inherit', 'pipe', 'pipe'], 
       shell: false, 
       cwd: process.cwd(), 
       env: process.env 
+    });
+
+    // Capture stdout for code generation
+    activeProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      console.log(`[${sessionId}] stdout:`, output);
+      codeOutput.push(output);
+      
+      // Look for generated test code patterns
+      if (output.includes('import { test, expect }') || output.includes("test('") || output.includes('await page.')) {
+        capturedCode += output;
+      }
+    });
+
+    // Capture stderr for debugging
+    activeProcess.stderr.on('data', (data) => {
+      console.log(`[${sessionId}] stderr:`, data.toString());
     });
 
     activeProcess.on('error', (err) => {
@@ -78,11 +101,27 @@ app.post('/stop', (req, res) => {
     const stoppedSessionId = sessionId;
     sessionId = null;
 
+    // Try to extract meaningful code from captured output
+    let finalCode = capturedCode;
+    if (!finalCode.trim()) {
+      // Fallback: look through all output for test-like content
+      const allOutput = codeOutput.join('');
+      const testMatch = allOutput.match(/import.*test.*expect.*[\s\S]*?test\([^}]*\{[\s\S]*?\}\);?/g);
+      if (testMatch) {
+        finalCode = testMatch[testMatch.length - 1]; // Get the last/most complete test
+      }
+    }
+
     res.json({ 
       ok: true, 
       sessionId: stoppedSessionId,
       message: 'Recording stopped',
-      playwrightCode: '// Generated code will be available in your clipboard or terminal output'
+      playwrightCode: finalCode || `import { test, expect } from '@playwright/test';
+
+test('recorded test', async ({ page }) => {
+  // Generated code not captured - please paste from clipboard or terminal
+  // The Playwright codegen process has completed
+});`
     });
   } catch (error) {
     console.error('Failed to stop recording:', error);
@@ -95,6 +134,15 @@ app.get('/status', (req, res) => {
     isRecording: !!activeProcess,
     sessionId: sessionId,
     pid: activeProcess?.pid || null
+  });
+});
+
+// Get captured code from last session
+app.get('/get-code/:sessionId?', (req, res) => {
+  res.json({
+    code: capturedCode || '',
+    allOutput: codeOutput.join('\n'),
+    sessionId: sessionId
   });
 });
 

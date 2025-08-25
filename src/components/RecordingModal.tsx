@@ -18,6 +18,7 @@ interface RecordingModalProps {
     name: string;
     description: string;
     url: string;
+    generatedCode?: string;
   }) => Promise<void>;
 }
 
@@ -115,27 +116,36 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
 
       const data = await response.json();
       
-      // Set placeholder code since the actual generated code will be in the clipboard/terminal
-      const placeholderCode = `import { test, expect } from '@playwright/test';
+      // Get the actual generated code from the agent
+      let actualCode = data.playwrightCode || '';
+      
+      // If no code was captured, provide an editable template
+      if (!actualCode.trim() || actualCode.includes('Generated code not captured')) {
+        actualCode = `import { test, expect } from '@playwright/test';
 
 test('${testName}', async ({ page }) => {
   await page.goto('${startUrl}');
   
-  // Your recorded actions will appear here
-  // The generated code is available in your clipboard or terminal output
-  // Please paste it here and edit as needed
+  // Paste your recorded Playwright code here or write your test steps
+  // Example actions:
+  // await page.click('button');
+  // await page.fill('input[name="username"]', 'testuser');
+  // await page.press('input[name="password"]', 'Enter');
   
   // Example assertions:
   // await expect(page).toHaveTitle(/Expected Title/);
   // await expect(page.locator('selector')).toBeVisible();
 });`;
+      }
 
-      setGeneratedCode(placeholderCode);
+      setGeneratedCode(actualCode);
       setActiveTab('code');
       
       toast({
-        title: "Recording Complete",
-        description: "Recording stopped. Generated code is in your clipboard - paste it in the code editor below.",
+        title: "Recording Complete", 
+        description: actualCode.includes('Generated code not captured') 
+          ? "Recording stopped. Please paste the generated code from your clipboard or terminal."
+          : "Recording stopped. Generated code is ready for editing.",
       });
       
       setRecordingStatus('idle');
@@ -157,7 +167,8 @@ test('${testName}', async ({ page }) => {
       await onSave({
         name: testName,
         description: testDescription,
-        url: startUrl
+        url: startUrl,
+        generatedCode: generatedCode
       });
       
       // Reset state
