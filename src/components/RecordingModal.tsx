@@ -47,25 +47,40 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
     setRecordingStatus('starting');
     
     try {
-      const { data, error } = await supabase.functions.invoke('playwright-recorder', {
-        body: {
-          action: 'start',
+      // First check if agent is running
+      const healthCheck = await fetch('http://localhost:4317/health').catch(() => null);
+      
+      if (!healthCheck || !healthCheck.ok) {
+        throw new Error('Scribe Agent not running. Please start the local agent first.');
+      }
+
+      const newSessionId = `session-${Date.now()}`;
+      
+      const response = await fetch('http://localhost:4317/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          url: startUrl, 
+          browser: browserType, 
+          target: 'typescript',
           testName,
-          startUrl,
-          isHeaded,
-          browserType
-        }
+          sessionId: newSessionId
+        })
       });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to start recording');
+      }
 
-      setSessionId(data.sessionId);
+      const data = await response.json();
+      setSessionId(data.sessionId || newSessionId);
       setRecordingStatus('recording');
       setIsRecording(true);
       
       toast({
         title: "Recording Started",
-        description: `${isHeaded ? 'Headed' : 'Headless'} ${browserType} browser opened. Perform your test actions.`,
+        description: `${isHeaded ? 'Headed' : 'Headless'} ${browserType} browser opened. Perform your test actions in the Playwright window.`,
       });
       
     } catch (error) {
@@ -73,7 +88,9 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
       setRecordingStatus('idle');
       toast({
         title: "Recording Failed",
-        description: "Failed to start recording session. Please try again.",
+        description: error.message.includes('Agent not running') 
+          ? "Local Scribe Agent is not running. Please start it first (see README)."
+          : "Failed to start recording session. Please try again.",
         variant: "destructive"
       });
     }
@@ -85,21 +102,40 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
     setRecordingStatus('stopping');
     
     try {
-      const { data, error } = await supabase.functions.invoke('playwright-recorder', {
-        body: {
-          action: 'stop',
-          sessionId
-        }
+      const response = await fetch('http://localhost:4317/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
       });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to stop recording');
+      }
 
-      setGeneratedCode(data.playwrightCode);
+      const data = await response.json();
+      
+      // Set placeholder code since the actual generated code will be in the clipboard/terminal
+      const placeholderCode = `import { test, expect } from '@playwright/test';
+
+test('${testName}', async ({ page }) => {
+  await page.goto('${startUrl}');
+  
+  // Your recorded actions will appear here
+  // The generated code is available in your clipboard or terminal output
+  // Please paste it here and edit as needed
+  
+  // Example assertions:
+  // await expect(page).toHaveTitle(/Expected Title/);
+  // await expect(page.locator('selector')).toBeVisible();
+});`;
+
+      setGeneratedCode(placeholderCode);
       setActiveTab('code');
       
       toast({
         title: "Recording Complete",
-        description: `Generated ${data.actionsRecorded} test steps in ${Math.round(data.duration / 1000)}s`,
+        description: "Recording stopped. Generated code is in your clipboard - paste it in the code editor below.",
       });
       
       setRecordingStatus('idle');
@@ -109,8 +145,8 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
       console.error('Failed to stop recording:', error);
       setRecordingStatus('recording');
       toast({
-        title: "Save Failed",
-        description: "Failed to save recorded test. Please try again.",
+        title: "Stop Failed",
+        description: "Failed to stop recording session. Please try again.",
         variant: "destructive"
       });
     }
@@ -163,11 +199,11 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
   const getStatusMessage = () => {
     switch (recordingStatus) {
       case 'starting':
-        return 'Starting browser and recording session...';
+        return 'Starting local Playwright browser and recording session...';
       case 'recording':
-        return 'Recording in progress. Perform your test actions in the opened browser.';
+        return 'Recording in progress. Perform your test actions in the Playwright browser window that opened.';
       case 'stopping':
-        return 'Processing recorded actions and generating test code...';
+        return 'Stopping recording and generating test code...';
       default:
         return '';
     }
@@ -276,6 +312,11 @@ export function RecordingModal({ isOpen, onClose, onSave }: RecordingModalProps)
                 <p className="text-sm text-muted-foreground">
                   {getStatusMessage()}
                 </p>
+                {recordingStatus === 'recording' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    💡 Tip: Perform your actions in the Playwright browser window, then click Stop to generate code.
+                  </p>
+                )}
               </div>
             )}
             
