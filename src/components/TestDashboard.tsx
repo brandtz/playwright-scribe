@@ -167,28 +167,28 @@ export default function TestDashboard() {
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
                   onClick={() => setSelectedTest(selectedTest === test.id ? null : test.id)}
                 >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-foreground">{test.name}</h3>
-                        <p className="text-sm text-muted-foreground">Last run: {test.lastRun}</p>
-                        <div className="flex gap-1 mt-2 flex-wrap">
-                          {test.tags.map(tag => (
-                            <Badge key={tag} variant="outline" className="text-xs">
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                      <StatusBadge status={test.status} />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-foreground">{test.name}</h3>
+                    <p className="text-sm text-muted-foreground">Last run: {test.lastRun}</p>
+                    <div className="flex gap-1 mt-2 flex-wrap">
+                      {test.tags.map(tag => (
+                        <Badge key={tag} variant="outline" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
                     </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm">
-                      <Play className="w-4 h-4 mr-1" />
-                      Run
-                    </Button>
-                    <Button variant="ghost" size="sm">
-                      Edit
-                    </Button>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <StatusBadge status={test.status} />
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm">
+                        <Play className="w-4 h-4 mr-1" />
+                        Run
+                      </Button>
+                      <Button variant="ghost" size="sm">
+                        Edit
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))}
