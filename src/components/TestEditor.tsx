@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Play, Save, Settings, Plus, Trash2, Code, Eye } from "lucide-react";
+import TagManager from "./TagManager";
 
 interface TestStep {
   id: string;
@@ -25,6 +26,7 @@ interface TestParameter {
 export default function TestEditor() {
   const [testName, setTestName] = useState("User Login Flow");
   const [testDescription, setTestDescription] = useState("Test the complete user login process including validation");
+  const [selectedTags, setSelectedTags] = useState(["login", "ui"]);
   
   const [steps, setSteps] = useState<TestStep[]>([
     {
@@ -163,6 +165,11 @@ export default function TestEditor() {
                 />
               </div>
             </div>
+            
+            <TagManager
+              selectedTags={selectedTags}
+              onTagsChange={setSelectedTags}
+            />
           </CardContent>
         </Card>
 

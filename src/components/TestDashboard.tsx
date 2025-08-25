@@ -11,6 +11,7 @@ interface TestCase {
   lastRun: string;
   duration: string;
   parameters: Record<string, string>;
+  tags: string[];
 }
 
 const mockTests: TestCase[] = [
@@ -20,7 +21,8 @@ const mockTests: TestCase[] = [
     status: "passing",
     lastRun: "2 hours ago",
     duration: "45s",
-    parameters: { accountNumber: "12345", environment: "staging" }
+    parameters: { accountNumber: "12345", environment: "staging" },
+    tags: ["login", "ui"]
   },
   {
     id: "2", 
@@ -28,7 +30,8 @@ const mockTests: TestCase[] = [
     status: "failing",
     lastRun: "1 hour ago",
     duration: "1m 23s",
-    parameters: { paymentAmount: "100.00", cardType: "visa" }
+    parameters: { paymentAmount: "100.00", cardType: "visa" },
+    tags: ["payment", "ordering"]
   },
   {
     id: "3",
@@ -36,7 +39,8 @@ const mockTests: TestCase[] = [
     status: "pending",
     lastRun: "3 hours ago", 
     duration: "32s",
-    parameters: { searchTerm: "laptop", category: "electronics" }
+    parameters: { searchTerm: "laptop", category: "electronics" },
+    tags: ["ui", "search"]
   }
 ];
 
@@ -163,15 +167,20 @@ export default function TestDashboard() {
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
                   onClick={() => setSelectedTest(selectedTest === test.id ? null : test.id)}
                 >
-                  <div className="flex items-center gap-4 flex-1">
-                    <StatusBadge status={test.status} />
-                    <div>
-                      <h3 className="font-medium">{test.name}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Last run {test.lastRun} • Duration: {test.duration}
-                      </p>
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-foreground">{test.name}</h3>
+                        <p className="text-sm text-muted-foreground">Last run: {test.lastRun}</p>
+                        <div className="flex gap-1 mt-2 flex-wrap">
+                          {test.tags.map(tag => (
+                            <Badge key={tag} variant="outline" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                      <StatusBadge status={test.status} />
                     </div>
-                  </div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm">
                       <Play className="w-4 h-4 mr-1" />
